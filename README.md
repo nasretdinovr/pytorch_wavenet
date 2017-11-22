@@ -1,2 +1,2 @@
-# pytorch_wavenet
+# PyTorch WaveNet
 Implementation of WaveNet on PyTorch
