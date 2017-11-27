@@ -4,6 +4,19 @@ import torch.nn.functional as F
 from torch import autograd
 import math
 
+def one_hot(input, quantization_channels, cuda=True):
+    len = input.size()[0]
+    ret = torch.zeros(1,len,quantization_channels)
+    for i in range(len):
+        if cuda:
+            ret[0][i][input.cpu().data.numpy()[i]] = 1
+        else:
+            ret[0][i][input.data.numpy()[i]] = 1
+    ret = torch.transpose(ret, 1, 2)
+    if cuda:
+        return autograd.Variable(ret).cuda()
+    else:
+        return autograd.Variable(ret)
     
 def time_to_batch(value, dilation, name=None): 
     shape = value.size()
@@ -12,16 +25,16 @@ def time_to_batch(value, dilation, name=None):
     padded = F.pad(value, (0, 0, 0, pad_elements))
     padded = padded.squeeze(1)
     reshaped = padded.view(-1, dilation, shape[2])
-    transposed = torch.transpose(reshaped, 1, 0)
-    transposed = transposed.contiguous().view(shape[0]*dilation, -1, shape[2])
-    return torch.transpose(transposed, 1, 2)
+    '''TODO: generalize for batch size  > 1'''
+    transposed = torch.transpose(reshaped, 2, 0)
+    transposed = torch.transpose(transposed,1, 0)
+    return transposed
 
 def batch_to_time(value, dilation, name=None):
+    shape = value.size()
     transposed = torch.transpose(value, 1, 2)
-    shape = transposed.size()
-    prepared = transposed.contiguous().view(dilation, -1, shape[2])
-    transposed1 = torch.transpose(prepared, 1, 0)
-    reshaped = transposed1.contiguous().view((shape[0] / dilation), -1, shape[2])
+    transposed = torch.transpose(transposed, 1, 0)
+    reshaped = transposed.contiguous().view((shape[0] // dilation), -1, shape[1])
     return torch.transpose(reshaped, 1, 2)
     
     
@@ -51,3 +64,22 @@ def mu_law_decode(output, quantization_channels, cuda=True):
     else:
         magnitude = (1.0 / mu) * (torch.pow((autograd.Variable(torch.ones(signal.size()).float() *(1 + mu)).cuda()), (torch.abs(signal))) -1)
     return torch.sign(signal) * magnitude
+
+def causal_conv(value, filter_, dilation):
+    filter_width = filter_.size()[2]
+    value_length = value.size()[2]
+    if dilation > 1:
+        value = torch.transpose(value, 1, 2)
+        transposed = time_to_batch(value, dilation)
+        conv = F.conv1d(transposed, filter_, stride=1)
+        restored = batch_to_time(conv, dilation)
+    else:
+        #print ("value")
+        #print (value.size())
+        #print ("filter")
+        #print (filter_.size())
+        restored = F.conv1d(value, filter_, stride=1)
+    # Remove excess elements at the end.
+    out_width = value_length - (filter_width - 1) * dilation
+    result = restored[:, :, :out_width]
+    return result

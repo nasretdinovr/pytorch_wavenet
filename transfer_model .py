@@ -217,13 +217,12 @@ class WaveNetModel(nn.Module):
             raise NotImplementedError("Incremental generation does not "
                                       "support scalar input yet.")
         
-        encoded = self.one_hot(waveform)
-        #encoded = encoded.contiguous().view(self.quantization_channels,-1).t()
+        encoded = one_hot(waveform, self.quantization_channels,self.use_cuda)
+        encoded = encoded.contiguous().view(self.quantization_channels,-1).t()
         #gc_embedding = self._embed_gc(global_condition)
-        raw_output = self._create_network(encoded)
+        raw_output = self._create_generator(encoded)
         out = raw_output.view(-1, self.quantization_channels)
-        #proba = F.softmax(out.type(torch.DoubleTensor)).type(torch.FloatTensor)
-        proba = F.softmax(out)
+        proba = F.softmax(out.type(torch.DoubleTensor)).type(torch.FloatTensor)
         last = proba[-1]
         return last
 
@@ -372,7 +371,6 @@ class WaveNetModel(nn.Module):
             # We mu-law encode and quantize the input audioform.
         encoded_input = mu_law_encode(input_batch,
                                       self.quantization_channels, self.use_cuda)
-        target_output = encoded_input.view(-1)[self.receptive_field:]
         #gc_embedding = self._embed_gc(global_condition_batch)
         encoded = self.one_hot(encoded_input)
         if self.scalar_input:
@@ -389,13 +387,14 @@ class WaveNetModel(nn.Module):
         # Cut off the samples corresponding to the receptive field
         # for the first predicted sample.
         
-        return raw_output, target_output
+        return raw_output
     
     def wavenet_loss(self,
              input_batch,
              global_condition_batch=None,
              l2_regularization_strength=None):
-        raw_output,target_output = self.forward(input_batch)
+        raw_output = self.forward(input_batch)
+        target_output = encoded_input.view(-1)[self.receptive_field:]
         prediction = raw_output.view(self.quantization_channels,-1)
         if self.use_cuda:
             loss = F.cross_entropy(prediction.transpose(0,1), target_output.type(torch.cuda.LongTensor))
